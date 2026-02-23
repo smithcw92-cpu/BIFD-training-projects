@@ -300,8 +300,63 @@ const STATIONS = [
 // ── Common Call Spots ─────────────────────────────────────────
 // Add your top call locations here. Each entry needs a label, lat, and lon.
 // To find coordinates: Google Maps → right-click a location → click the lat/lon shown at top.
+// Entries marked "add coordinates manually" were not found by the geocoder.
 const COMMON_ADDRESSES = [
-  // { label: 'Example — replace with real spots', lat: 47.6254, lon: -122.5197 },
+  // ── Intersections ──────────────────────────────────────────
+  { label: 'Yaquina Avenue and Cedar Street',              lat: 47.6457, lon: -122.5097 },
+  { label: 'Hansen Road and Cove Landing Lane',            lat: 47.6365, lon: -122.5746 },
+  { label: 'Mandus Olson Road and Coyote Farm Lane',       lat: 47.6504, lon: -122.5529 },
+  { label: 'Hyla Avenue and Albertson Road',               lat: 47.6604, lon: -122.5130 },
+  { label: 'Olympus Beach Road and Beach Street',          lat: 47.6467, lon: -122.5809 },
+  { label: 'Beck Road and Mattson Place',                  lat: 47.5996, lon: -122.5407 },
+  { label: 'Crystal Springs Drive and Sullivan Road',      lat: 47.5943, lon: -122.5730 },
+  { label: 'Toe Jam Hill Road and Darden Lane',            lat: 47.5884, lon: -122.5064 },
+  { label: 'Taylor Avenue and Wiggins Road',               lat: 47.6145, lon: -122.5103 },
+  { label: 'Manzanita Road and Jay Street',                lat: 47.6851, lon: -122.5611 },
+  { label: 'Sunrise Drive and Misty Vale Place',           lat: 47.6918, lon: -122.5104 },
+  { label: 'County Park Road and Gordon Drive',            lat: 47.7045, lon: -122.5335 },
+  { label: 'Henderson Road and Seabold Road',              lat: 47.6973, lon: -122.5612 },
+  { label: 'Agate Point Road and North Street',            lat: 47.7126, lon: -122.5478 },
+  { label: 'NE Yeomalt Point Drive and Yeomalt Place NE',  lat: 47.6330, lon: -122.4909 },
+  { label: 'NE Beach Crest Drive and Hyla Avenue NE',      lat: 47.6575, lon: -122.5154 },
+  { label: 'Miller Road NE and Battle Point Drive NE',     lat: 47.6722, lon: -122.5504 },
+  { label: 'Eagle Harbor Drive NE and Packard Lane NE',    lat: 47.6297, lon: -122.5419 },
+  { label: 'Agate Point Rd NE and Mariner Ave NE',         lat: 47.7126, lon: -122.5478 },
+  { label: 'NE Winther Road and Kallgren Road NE',         lat: 47.6720, lon: -122.5201 },
+  { label: 'Hall Brothers Loop NW',                        lat: 47.6252, lon: -122.5240 },
+  // ── Addresses ──────────────────────────────────────────────
+  { label: '370 Brien Drive',                              lat: 47.6234, lon: -122.5174 },
+  { label: '1534 White Place',                             lat: 47.6389, lon: -122.5266 },
+  { label: '11299 Battle Point Drive',                     lat: 47.6658, lon: -122.5801 },
+  { label: '15446 Sunrise Drive',                          lat: 47.7035, lon: -122.5102 },
+  { label: '7361 NE Twin Ponds Road',                      lat: 47.6302, lon: -122.5609 },
+  { label: '10861 Manitou Park Blvd',                      lat: 47.6625, lon: -122.5001 },
+  { label: '4620 Lynwood Center Road',                     lat: 47.6044, lon: -122.5472 },
+  { label: '200 High School Road',                         lat: 47.6367, lon: -122.5195 },
+  { label: '350 High School Road',                         lat: 47.6358, lon: -122.5178 },
+  // ── Parks & Public Places ───────────────────────────────────
+  { label: 'Hawley Cove Park',                             lat: 47.6271, lon: -122.5039 },
+  { label: 'Blakely Harbor Park',                          lat: 47.5964, lon: -122.5180 },
+  { label: 'Pritchard Park',                               lat: 47.6153, lon: -122.5052 },
+  { label: 'Fort Ward Boat Launch',                        lat: 47.5846, lon: -122.5259 },
+  { label: 'Hidden Cove Park',                             lat: 47.6947, lon: -122.5338 },
+  { label: 'West Port Madison Nature Preserve',            lat: 47.7066, lon: -122.5371 },
+  // ── Buildings & Facilities ──────────────────────────────────
+  { label: 'Harbourside Condos',                           lat: 47.6219, lon: -122.5235 },
+  { label: 'Harbor Square Condominiums',                   lat: 47.6255, lon: -122.5117 },
+  { label: 'Seabold Hall',                                 lat: 47.6941, lon: -122.5581 },
+  { label: 'Eagle Harbor Marina',                          lat: 47.6162, lon: -122.5132 },
+  { label: 'Wyatt House',                                  lat: 47.6288, lon: -122.5221 },
+  // ── Need coordinates — right-click in Google Maps to find ───
+  // { label: 'Olympian Condos',                           lat: 47.6274, lon: -122.5248 },
+  // { label: 'The Pool at Pleasant Beach',                lat: 47.6051, lon: -122.5467 },
+  // { label: 'Country Club Pool',                         lat: 47.6311, lon: -122.5002 },
+  // { label: 'Queen City Yacht Club Dock',                lat: 47.6964, lon: -122.5318 },
+  // { label: 'Winslow Arms Apartments',                   lat: 47.6233, lon: -122.5223 },
+  // { label: 'Madison House Bainbridge Senior Living',    lat: 47.6231, lon: -122.5210 },
+  // { label: 'Finch Place Apartments',                    lat: 47.6239, lon: -122.5218 },
+  // { label: 'Madrona House',                             lat: 47.6430, lon: -122.5202 },
+  // { label: '1344 Wintergreen Lane',                     lat: 47.6377, lon: -122.5141 },
 ];
 
 // ── State ────────────────────────────────────────────────────
