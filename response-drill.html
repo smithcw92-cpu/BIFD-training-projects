@@ -260,9 +260,14 @@
 
       <div class="panel">
         <button id="new-call-btn">New Call</button>
+        <div id="route-mode-row" style="display:flex;gap:6px;margin-bottom:8px;">
+          <button class="mode-btn active" id="rmode-direct">Most Direct Route</button>
+          <button class="mode-btn"        id="rmode-any">Any Route</button>
+        </div>
         <div id="mode-row">
-          <button class="mode-btn active" id="mode-ix">Random Intersection</button>
-          <button class="mode-btn"        id="mode-addr">Enter Address</button>
+          <button class="mode-btn active" id="mode-ix">Random</button>
+          <button class="mode-btn"        id="mode-addr">Address</button>
+          <button class="mode-btn"        id="mode-common">Common Spots</button>
         </div>
         <div id="addr-wrap" class="hidden">
           <input type="text" id="address-input" placeholder="Address on Bainbridge Island…">
@@ -292,17 +297,27 @@ const STATIONS = [
   { id: 23, label: 'Station 23', sub: 'North', lat: 47.688504,  lon: -122.539616,  addr: '12985 Phelps Road NE' },
 ];
 
+// ── Common Call Spots ─────────────────────────────────────────
+// Add your top call locations here. Each entry needs a label, lat, and lon.
+// To find coordinates: Google Maps → right-click a location → click the lat/lon shown at top.
+const COMMON_ADDRESSES = [
+  // { label: 'Example — replace with real spots', lat: 47.6254, lon: -122.5197 },
+];
+
 // ── State ────────────────────────────────────────────────────
-let station   = STATIONS[0];
-let ixList    = [];       // all computed intersections on the island
-let call      = null;     // { lat, lon, label }
-let route     = null;     // { steps, totalDistance, fullGeometry }
-let stepIdx   = 0;
-let active    = false;
-let mode      = 'intersection';
-let wrongCt   = 0;
-let mapHidden = false;
-let sess      = { calls: 0, correct: 0, total: 0 };
+let station    = STATIONS[0];
+let ixList     = [];       // all computed intersections on the island
+let call       = null;     // { lat, lon, label }
+let route      = null;     // { steps, totalDistance, fullGeometry }
+let stepIdx    = 0;
+let active     = false;
+let mode       = 'intersection';
+let routeMode  = 'direct'; // 'direct' | 'any'
+let wrongCt    = 0;
+let mapHidden  = false;
+let sess       = { calls: 0, correct: 0, total: 0 };
+let roadNameSet = new Set();
+let userSteps   = [];
 
 // ── Map ──────────────────────────────────────────────────────
 let map, stnMarker, dstMarker;
@@ -375,6 +390,7 @@ function buildIntersections(data) {
   for (const el of data.elements) {
     if (el.type !== 'way' || !el.tags?.name || !el.nodes || !el.geometry) continue;
     const name = el.tags.name;
+    roadNameSet.add(name);
     for (let i = 0; i < el.nodes.length; i++) {
       const nid = el.nodes[i], g = el.geometry[i];
       if (!g) continue;
@@ -455,7 +471,9 @@ async function startCall(destOverride) {
   document.getElementById('completion').style.display = 'none';
   document.getElementById('step-list').innerHTML = '';
   document.getElementById('hint-btn').style.display = 'none';
-  wrongCt = 0;
+  wrongCt    = 0;
+  userSteps  = [];
+  document.getElementById('skip-btn').textContent = routeMode === 'any' ? 'Arrived' : 'Skip';
 
   let dest = destOverride;
   let rt;
@@ -513,12 +531,42 @@ async function startCall(destOverride) {
   document.getElementById('answer-input').focus();
 }
 
+function findRoadMatch(input) {
+  const u = norm(input);
+  for (const name of roadNameSet) {
+    if (norm(name) === u) return name;
+    const esc = u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp('(?:^|\\s)' + esc + '(?:\\s|$)').test(norm(name))) return name;
+  }
+  return null;
+}
+
 function checkAnswer() {
-  if (!active || !route || stepIdx >= route.steps.length) return;
+  if (!active || !route) return;
   const inp = document.getElementById('answer-input');
   const val = inp.value.trim();
   if (!val) return;
 
+  if (routeMode === 'any') {
+    const matched = findRoadMatch(val);
+    if (matched) {
+      userSteps.push(matched);
+      sess.correct++; sess.total++; wrongCt = 0;
+      inp.className = 'ok';
+      fb(`✓  ${matched}`, 'fb-ok');
+      addStep(matched, 'done');
+      updateCounter();
+      setTimeout(() => { clearInput(); fb('', ''); document.getElementById('answer-input').focus(); }, 700);
+    } else {
+      sess.total++; wrongCt++;
+      inp.className = 'bad';
+      fb('Not a recognized road — check the name.', 'fb-bad');
+    }
+    updateStats();
+    return;
+  }
+
+  if (stepIdx >= route.steps.length) return;
   const expected = route.steps[stepIdx].name;
 
   if (accepted(val, expected)) {
@@ -555,7 +603,22 @@ function doHint() {
   document.getElementById('answer-input').focus();
 }
 
+function doArrive() {
+  if (!active) return;
+  active = false;
+  const osrmRoads = route.steps.length;
+  const mi        = (route.totalDistance / 1609.34).toFixed(1);
+  // Draw OSRM optimal route as blue dashed overlay for comparison
+  drawLine(route.fullGeometry, '#4a90e2', '8 5');
+  const comp = document.getElementById('completion');
+  comp.style.display = 'block';
+  comp.textContent = `Arrived! You named ${userSteps.length} road${userSteps.length !== 1 ? 's' : ''}. OSRM optimal: ${osrmRoads} roads, ${mi} mi (shown in blue). Press "New Call" to keep drilling.`;
+  document.getElementById('step-counter').textContent = `${userSteps.length} roads named`;
+  updateStats();
+}
+
 function doSkip() {
+  if (routeMode === 'any') { doArrive(); return; }
   if (!active || !route || stepIdx >= route.steps.length) return;
   const expected = route.steps[stepIdx].name;
   sess.total++; wrongCt = 0;
@@ -617,6 +680,13 @@ function addStep(name, type) {
 }
 
 function updateCounter() {
+  if (routeMode === 'any') {
+    const n = userSteps.length;
+    document.getElementById('step-counter').textContent = n
+      ? `${n} road${n !== 1 ? 's' : ''} named — press Arrived when done`
+      : 'Name each road you take to the destination';
+    return;
+  }
   const tot = route?.steps?.length ?? 0;
   document.getElementById('step-counter').textContent = tot
     ? `Step ${stepIdx + 1} of ${tot}`
@@ -684,6 +754,13 @@ document.getElementById('reveal-btn').addEventListener('click',     () => toggle
 document.getElementById('new-call-btn').addEventListener('click', () => {
   if (mode === 'intersection') {
     startCall();
+  } else if (mode === 'common') {
+    if (!COMMON_ADDRESSES.length) {
+      document.getElementById('call-label').textContent = 'No common addresses defined yet — add entries to COMMON_ADDRESSES in the code.';
+      return;
+    }
+    const pick = COMMON_ADDRESSES[Math.floor(Math.random() * COMMON_ADDRESSES.length)];
+    startCall(pick);
   } else {
     document.getElementById('address-input').focus();
     document.getElementById('call-label').textContent = 'Enter an address above, then press Go.';
@@ -695,20 +772,18 @@ document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Escape') doSkip();
 });
 
-document.getElementById('mode-ix').addEventListener('click', () => {
-  mode = 'intersection';
-  document.getElementById('mode-ix').classList.add('active');
-  document.getElementById('mode-addr').classList.remove('active');
-  document.getElementById('addr-wrap').classList.add('hidden');
-});
+function setMode(m) {
+  mode = m;
+  document.getElementById('mode-ix').classList.toggle('active',     m === 'intersection');
+  document.getElementById('mode-addr').classList.toggle('active',   m === 'address');
+  document.getElementById('mode-common').classList.toggle('active', m === 'common');
+  document.getElementById('addr-wrap').classList.toggle('hidden',   m !== 'address');
+  if (m === 'address') setTimeout(() => document.getElementById('address-input').focus(), 50);
+}
 
-document.getElementById('mode-addr').addEventListener('click', () => {
-  mode = 'address';
-  document.getElementById('mode-addr').classList.add('active');
-  document.getElementById('mode-ix').classList.remove('active');
-  document.getElementById('addr-wrap').classList.remove('hidden');
-  setTimeout(() => document.getElementById('address-input').focus(), 50);
-});
+document.getElementById('mode-ix').addEventListener('click',     () => setMode('intersection'));
+document.getElementById('mode-addr').addEventListener('click',   () => setMode('address'));
+document.getElementById('mode-common').addEventListener('click', () => setMode('common'));
 
 document.getElementById('addr-go').addEventListener('click', async () => {
   const addr = document.getElementById('address-input').value.trim();
@@ -736,6 +811,20 @@ document.getElementById('addr-go').addEventListener('click', async () => {
 
 document.getElementById('address-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('addr-go').click();
+});
+
+document.getElementById('rmode-direct').addEventListener('click', () => {
+  routeMode = 'direct';
+  document.getElementById('rmode-direct').classList.add('active');
+  document.getElementById('rmode-any').classList.remove('active');
+  document.getElementById('skip-btn').textContent = 'Skip';
+});
+
+document.getElementById('rmode-any').addEventListener('click', () => {
+  routeMode = 'any';
+  document.getElementById('rmode-any').classList.add('active');
+  document.getElementById('rmode-direct').classList.remove('active');
+  document.getElementById('skip-btn').textContent = 'Arrived';
 });
 
 // ── Init ──────────────────────────────────────────────────────
