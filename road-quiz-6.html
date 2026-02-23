@@ -220,6 +220,29 @@
       line-height: 1.5;
       text-align: center;
     }
+    .mode-toggle-row { display: flex; gap: 6px; margin-bottom: 11px; }
+    .btn-mode {
+      flex: 1; padding: 7px 6px; border: 1px solid #2a3050; border-radius: 6px;
+      font-size: 0.75rem; font-weight: 600; cursor: pointer;
+      background: #12151c; color: #5a6380; transition: all 0.15s;
+    }
+    .btn-mode.active { background: #2a3050; color: #dde1ea; border-color: #4a5580; }
+    .btn-mode:hover:not(.active) { color: #9aa0b8; }
+    #find-question { font-size: 0.82rem; color: #7a8299; margin-bottom: 8px; }
+    #find-road-name {
+      font-size: 1.05rem; font-weight: 700; color: #e8eaf0; text-align: center;
+      padding: 10px 8px; margin-bottom: 9px; background: #12151c;
+      border-radius: 6px; letter-spacing: 0.3px; line-height: 1.3;
+    }
+    #find-feedback {
+      font-size: 0.82rem; padding: 7px 9px; border-radius: 5px;
+      margin-bottom: 7px; display: none; line-height: 1.4;
+    }
+    #find-feedback.fb-ok   { display: block; background: #142014; color: #66bb6a; border: 1px solid #3a6a3a; }
+    #find-feedback.fb-bad  { display: block; background: #201414; color: #ef5350; border: 1px solid #6a3a3a; }
+    #find-feedback.fb-skip { display: block; background: #1e1a10; color: #ffa726; border: 1px solid #6a5a2a; }
+    #find-hint { font-size: 0.75rem; color: #3a4060; margin-top: 5px; }
+    #map.find-mode .leaflet-container { cursor: crosshair; }
     @media (max-width: 680px) { #sidebar { width: 260px; } }
     @media (max-width: 540px) {
       #main { flex-direction: column; }
@@ -270,15 +293,30 @@
         </div>
       </div>
       <div class="panel">
-        <div class="panel-title">Name That Road</div>
-        <div id="question-text">Initializing...</div>
-        <input type="text" id="answer-input" placeholder="Type road name..." autocomplete="off" spellcheck="false" />
-        <div id="feedback"></div>
-        <div class="btn-row">
-          <button class="btn btn-primary"   id="submit-btn">Submit</button>
-          <button class="btn btn-secondary" id="skip-btn">Skip</button>
+        <div class="mode-toggle-row">
+          <button class="btn btn-mode active" id="mode-name-btn">&#9654; Name That Road</button>
+          <button class="btn btn-mode"        id="mode-find-btn">&#9670; Find That Road</button>
         </div>
-        <div id="hint-text">Press Enter to submit &bull; Esc to skip</div>
+        <div id="name-mode-ui">
+          <div id="question-text">Initializing...</div>
+          <input type="text" id="answer-input" placeholder="Type road name..." autocomplete="off" spellcheck="false" />
+          <div id="feedback"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary"   id="submit-btn">Submit</button>
+            <button class="btn btn-secondary" id="skip-btn">Skip</button>
+          </div>
+          <div id="hint-text">Press Enter to submit &bull; Esc to skip</div>
+        </div>
+        <div id="find-mode-ui" style="display:none">
+          <div id="find-question">Click on the map where you think this road is:</div>
+          <div id="find-road-name"></div>
+          <div id="find-feedback"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary"   id="find-next-btn" style="display:none">Next Road</button>
+            <button class="btn btn-secondary" id="find-skip-btn">Skip</button>
+          </div>
+          <div id="find-hint">Click the map &bull; Esc to skip</div>
+        </div>
       </div>
       <div id="completion"></div>
       <div class="panel">
@@ -325,6 +363,12 @@ const mastered = new Set();
 let activeRoadNames  = null;
 let activeAreaBounds = null;
 let selectionLayer   = null;
+
+let quizMode       = 'name';  // 'name' | 'find'
+let pendingTimer   = null;
+let findClickMarker = null;
+let findClickLine   = null;
+const FIND_THRESHOLD = 300;   // metres — within this counts as correct
 
 const ARTERIAL_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary']);
 // Roads to always include in the arterials filter regardless of OSM classification
@@ -498,6 +542,51 @@ function toggleArterial() {
   updateAreaStatus(); updateRoadCountLabel(); startQuiz();
 }
 
+function distanceToRoad(name, clickLatLng) {
+  let min = Infinity;
+  for (const seg of roadsByName[name]) {
+    for (const [lat, lon] of seg) {
+      const d = clickLatLng.distanceTo(L.latLng(lat, lon));
+      if (d < min) min = d;
+    }
+  }
+  return min;
+}
+
+function nearestRoadNode(name, clickLatLng) {
+  let best = null, min = Infinity;
+  for (const seg of roadsByName[name]) {
+    for (const [lat, lon] of seg) {
+      const d = clickLatLng.distanceTo(L.latLng(lat, lon));
+      if (d < min) { min = d; best = L.latLng(lat, lon); }
+    }
+  }
+  return best;
+}
+
+function clearFindMarkers() {
+  if (findClickMarker) { map.removeLayer(findClickMarker); findClickMarker = null; }
+  if (findClickLine)   { map.removeLayer(findClickLine);   findClickLine   = null; }
+}
+
+function startFindClick() { map.on('click',  handleFindClick); }
+function stopFindClick()  { map.off('click', handleFindClick); }
+
+function setMode(mode) {
+  if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+  stopFindClick();
+  clearFindMarkers();
+  if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
+  quizMode = mode;
+  document.getElementById('name-mode-ui').style.display = mode === 'name' ? '' : 'none';
+  document.getElementById('find-mode-ui').style.display = mode === 'find' ? '' : 'none';
+  document.getElementById('mode-name-btn').classList.toggle('active', mode === 'name');
+  document.getElementById('mode-find-btn').classList.toggle('active', mode === 'find');
+  document.getElementById('map').classList.toggle('find-mode', mode === 'find');
+  document.getElementById('zoom-btn').style.display = mode === 'find' ? 'none' : '';
+  startQuiz();
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -519,6 +608,11 @@ function startQuiz() {
 }
 
 function nextQuestion() {
+  if (quizMode === 'find') nextFindQuestion();
+  else nextNameQuestion();
+}
+
+function nextNameQuestion() {
   awaitingNext = false;
   if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
   if (quizQueue.length === 0) {
@@ -535,6 +629,93 @@ function nextQuestion() {
   const fb = document.getElementById('feedback'); fb.className = fb.textContent = '';
   document.getElementById('question-text').textContent = 'The road highlighted in red is — what is its name?';
   updateScore();
+}
+
+function nextFindQuestion() {
+  clearFindMarkers();
+  if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
+  if (quizQueue.length === 0) {
+    const unmastered = activeNames().filter(n => !mastered.has(n));
+    if (unmastered.length === 0) { showCompletion(); return; }
+    quizQueue = shuffle([...unmastered]);
+  }
+  currentRoad = quizQueue.pop();
+  document.getElementById('find-road-name').textContent = currentRoad;
+  const fb = document.getElementById('find-feedback'); fb.className = ''; fb.textContent = '';
+  document.getElementById('find-next-btn').style.display = 'none';
+  document.getElementById('find-skip-btn').style.display = '';
+  document.getElementById('find-hint').style.display = '';
+  updateScore();
+  startFindClick();
+}
+
+function handleFindClick(e) {
+  stopFindClick();
+  const dist = distanceToRoad(currentRoad, e.latlng);
+  const isCorrect = dist <= FIND_THRESHOLD;
+  const distStr = dist < 1000 ? `${Math.round(dist)}m` : `${(dist / 1000).toFixed(1)}km`;
+
+  findClickMarker = L.circleMarker(e.latlng, {
+    radius: 9, color: isCorrect ? '#4caf50' : '#e05252',
+    fillColor: isCorrect ? '#4caf50' : '#e05252', fillOpacity: 0.75, weight: 2,
+  }).addTo(map);
+
+  if (!isCorrect) {
+    const nearest = nearestRoadNode(currentRoad, e.latlng);
+    if (nearest) {
+      findClickLine = L.polyline([e.latlng, nearest], {
+        color: '#e05252', weight: 2, dashArray: '6 5', opacity: 0.65,
+      }).addTo(map);
+    }
+  }
+
+  score.total++;
+  const fb = document.getElementById('find-feedback');
+  if (isCorrect) {
+    score.correct++; score.streak++; mastered.add(currentRoad);
+    setRoadStyle(currentRoad, STYLE_CORRECT);
+    fb.className = 'fb-ok';
+    fb.textContent = `\u2713 Nice! You were ${distStr} away.`;
+  } else {
+    score.streak = 0;
+    setRoadStyle(currentRoad, STYLE_SKIP);
+    const closeTag = dist <= 800 ? 'Close! ' : '';
+    fb.className = 'fb-bad';
+    fb.textContent = `\u2717 ${closeTag}${distStr} away \u2014 the road is highlighted.`;
+    quizQueue.splice(Math.floor(Math.random() * Math.min(5, quizQueue.length + 1)), 0, currentRoad);
+  }
+
+  roadLayers[currentRoad]?.eachLayer(l => l.bringToFront?.());
+  zoomToRoad(currentRoad);
+
+  document.getElementById('find-next-btn').style.display = '';
+  document.getElementById('find-skip-btn').style.display = 'none';
+  document.getElementById('find-hint').style.display = 'none';
+
+  updateScore(); updateRoadList();
+  pendingTimer = setTimeout(nextQuestion, isCorrect ? 2500 : 3500);
+}
+
+function skipFindRoad() {
+  stopFindClick();
+  if (document.getElementById('find-next-btn').style.display !== 'none') {
+    // already answered — treat Next click as skip
+    if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+    nextQuestion(); return;
+  }
+  score.total++; score.streak = 0;
+  setRoadStyle(currentRoad, STYLE_SKIP);
+  roadLayers[currentRoad]?.eachLayer(l => l.bringToFront?.());
+  zoomToRoad(currentRoad);
+  const fb = document.getElementById('find-feedback');
+  fb.className = 'fb-skip';
+  fb.textContent = `Skipped \u2014 the road is highlighted.`;
+  quizQueue.splice(Math.floor(Math.random() * Math.min(5, quizQueue.length + 1)), 0, currentRoad);
+  document.getElementById('find-next-btn').style.display = '';
+  document.getElementById('find-skip-btn').style.display = 'none';
+  document.getElementById('find-hint').style.display = 'none';
+  updateScore();
+  pendingTimer = setTimeout(nextQuestion, 2500);
 }
 
 function normalise(name) {
@@ -563,7 +744,7 @@ function checkAnswer() {
     score.correct++; score.streak++; mastered.add(currentRoad);
     input.className = 'state-ok'; fb.className = 'fb-ok'; fb.textContent = 'Correct! ' + currentRoad;
     setRoadStyle(currentRoad, STYLE_CORRECT); awaitingNext = true;
-    updateScore(); updateRoadList(); setTimeout(nextQuestion, 1600);
+    updateScore(); updateRoadList(); pendingTimer = setTimeout(nextQuestion, 1600);
   } else {
     score.streak = 0; input.className = 'state-bad'; fb.className = 'fb-bad';
     fb.textContent = 'Not quite — try again, or press Skip to reveal.'; updateScore();
@@ -578,7 +759,7 @@ function skipRoad() {
   fb.textContent = 'Answer: ' + currentRoad + ' — it will come back around.';
   setRoadStyle(currentRoad, STYLE_SKIP);
   quizQueue.splice(Math.floor(Math.random() * Math.min(5, quizQueue.length + 1)), 0, currentRoad);
-  updateScore(); awaitingNext = true; setTimeout(nextQuestion, 2200);
+  updateScore(); awaitingNext = true; pendingTimer = setTimeout(nextQuestion, 2200);
 }
 
 function showCompletion() {
@@ -586,7 +767,8 @@ function showCompletion() {
   const el = document.getElementById('completion');
   el.style.display = 'block';
   el.textContent = `All ${names.length} roads mastered! Final score: ${score.correct}/${score.total} (${pct}%). Hit Reset to go again.`;
-  document.getElementById('question-text').textContent = 'Quiz complete — great work!';
+  if (quizMode === 'name') document.getElementById('question-text').textContent = 'Quiz complete — great work!';
+  else document.getElementById('find-road-name').textContent = 'Quiz complete!';
   if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
 }
 
@@ -629,6 +811,16 @@ document.getElementById('clear-area-btn').addEventListener('click', clearAreaSel
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter')  checkAnswer();
   if (e.key === 'Escape') skipRoad();
+});
+document.getElementById('mode-name-btn').addEventListener('click', () => setMode('name'));
+document.getElementById('mode-find-btn').addEventListener('click', () => setMode('find'));
+document.getElementById('find-next-btn').addEventListener('click', () => {
+  if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+  nextQuestion();
+});
+document.getElementById('find-skip-btn').addEventListener('click', skipFindRoad);
+document.addEventListener('keydown', e => {
+  if (quizMode === 'find' && e.key === 'Escape') skipFindRoad();
 });
 
 async function init() {
