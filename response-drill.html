@@ -173,6 +173,29 @@
     .score-val  { font-size: 1.35rem; font-weight: 700; color: #e05252; line-height: 1; }
     .score-lbl  { font-size: 0.65rem; color: #5a6380; margin-top: 3px; }
 
+    /* Route-complete banner — overlays the map */
+    #route-complete-banner {
+      display: none; position: absolute; inset: 0; z-index: 600;
+      background: rgba(12,15,22,.72); backdrop-filter: blur(2px);
+      flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      pointer-events: none;
+    }
+    #route-complete-banner.on { display: flex; animation: rc-fade 3s ease forwards; }
+    @keyframes rc-fade {
+      0%   { opacity: 0; }
+      12%  { opacity: 1; }
+      72%  { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    .rc-ring {
+      width: 96px; height: 96px; border-radius: 50%;
+      background: rgba(76,175,80,.15); border: 3px solid rgba(76,175,80,.6);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3rem; line-height: 1;
+    }
+    .rc-title { font-size: 1.8rem; font-weight: 700; color: #4caf50; letter-spacing: 0.5px; }
+    .rc-sub   { font-size: 0.85rem; color: #7a8299; }
+
     /* Loading overlay — sits over all of #main */
     #loading {
       display: none; position: absolute; inset: 0; z-index: 2000;
@@ -214,6 +237,11 @@
 
 <div id="main">
   <div id="map">
+    <div id="route-complete-banner">
+      <div class="rc-ring">✓</div>
+      <div class="rc-title">Route Complete!</div>
+      <div class="rc-sub" id="rc-sub"></div>
+    </div>
     <div id="map-cover">
       <p>Map hidden — navigate from memory</p>
       <button id="reveal-btn">Show Map</button>
@@ -348,15 +376,15 @@ const COMMON_ADDRESSES = [
   { label: 'Eagle Harbor Marina',                          lat: 47.6162, lon: -122.5132 },
   { label: 'Wyatt House',                                  lat: 47.6288, lon: -122.5221 },
   // ── Need coordinates — right-click in Google Maps to find ───
-  // { label: 'Olympian Condos',                           lat: 47.6274, lon: -122.5248 },
-  // { label: 'The Pool at Pleasant Beach',                lat: 47.6051, lon: -122.5467 },
-  // { label: 'Country Club Pool',                         lat: 47.6311, lon: -122.5002 },
-  // { label: 'Queen City Yacht Club Dock',                lat: 47.6964, lon: -122.5318 },
-  // { label: 'Winslow Arms Apartments',                   lat: 47.6233, lon: -122.5223 },
-  // { label: 'Madison House Bainbridge Senior Living',    lat: 47.6231, lon: -122.5210 },
-  // { label: 'Finch Place Apartments',                    lat: 47.6239, lon: -122.5218 },
-  // { label: 'Madrona House',                             lat: 47.6430, lon: -122.5202 },
-  // { label: '1344 Wintergreen Lane',                     lat: 47.6377, lon: -122.5141 },
+  // { label: 'Olympian Condos',                           lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'The Pool at Pleasant Beach',                lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Country Club Pool',                         lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Queen City Yacht Club Dock',                lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Winslow Arms Apartments',                   lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Madison House Bainbridge Senior Living',    lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Finch Place Apartments',                    lat: 47.XXXX, lon: -122.XXXX },
+  // { label: 'Madrona House',                             lat: 47.XXXX, lon: -122.XXXX },
+  // { label: '1344 Wintergreen Lane',                     lat: 47.XXXX, lon: -122.XXXX },
 ];
 
 // ── State ────────────────────────────────────────────────────
@@ -368,8 +396,9 @@ let stepIdx    = 0;
 let active     = false;
 let mode       = 'intersection';
 let routeMode  = 'direct'; // 'direct' | 'any'
-let wrongCt    = 0;
-let mapHidden  = false;
+let wrongCt       = 0;
+let mapHidden     = false;
+let routeComplete = false;
 let sess       = { calls: 0, correct: 0, total: 0 };
 let roadNameSet = new Set();
 let userSteps   = [];
@@ -519,6 +548,7 @@ function accepted(input, correct) {
 
 async function startCall(destOverride) {
   active = false;
+  routeComplete = false;
   setLoad(true, destOverride ? 'Routing…' : 'Finding route…');
   clearLines();
   clearInput();
@@ -661,14 +691,16 @@ function doHint() {
 function doArrive() {
   if (!active) return;
   active = false;
+  routeComplete = true;
   const osrmRoads = route.steps.length;
   const mi        = (route.totalDistance / 1609.34).toFixed(1);
   // Draw OSRM optimal route as blue dashed overlay for comparison
   drawLine(route.fullGeometry, '#4a90e2', '8 5');
   const comp = document.getElementById('completion');
   comp.style.display = 'block';
-  comp.textContent = `Arrived! You named ${userSteps.length} road${userSteps.length !== 1 ? 's' : ''}. OSRM optimal: ${osrmRoads} roads, ${mi} mi (shown in blue). Press "New Call" to keep drilling.`;
+  comp.textContent = `Arrived! You named ${userSteps.length} road${userSteps.length !== 1 ? 's' : ''}. OSRM optimal: ${osrmRoads} roads, ${mi} mi (shown in blue). Press Enter or "New Call" to continue.`;
   document.getElementById('step-counter').textContent = `${userSteps.length} roads named`;
+  showRouteBanner(`${userSteps.length} road${userSteps.length !== 1 ? 's' : ''} named`);
   updateStats();
 }
 
@@ -695,16 +727,26 @@ function doSkip() {
 
 function completeRoute() {
   active = false;
+  routeComplete = true;
   const mi    = (route.totalDistance / 1609.34).toFixed(1);
   const total = route.steps.length;
-  const skips = route.steps.length - (sess.correct - (sess.calls > 1 ? 0 : 0)); // approximate
   const comp  = document.getElementById('completion');
   comp.style.display = 'block';
-  comp.textContent = `Route complete — ${total} roads, ${mi} mi. Press "New Call" to keep drilling.`;
+  comp.textContent = `Route complete — ${total} roads, ${mi} mi. Press Enter or "New Call" to continue.`;
   document.getElementById('step-counter').textContent = `All ${total} roads complete`;
   // Draw full route as faint dashed overlay
   drawLine(route.fullGeometry, '#4caf50', '8 5');
+  showRouteBanner(`${total} roads · ${mi} mi`);
   updateStats();
+}
+
+function showRouteBanner(subText) {
+  const banner = document.getElementById('route-complete-banner');
+  document.getElementById('rc-sub').textContent = subText;
+  banner.classList.remove('on');
+  void banner.offsetWidth; // force reflow to restart animation
+  banner.classList.add('on');
+  setTimeout(() => banner.classList.remove('on'), 3000);
 }
 
 // ── UI helpers ────────────────────────────────────────────────
@@ -823,7 +865,10 @@ document.getElementById('new-call-btn').addEventListener('click', () => {
 });
 
 document.getElementById('answer-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter')  checkAnswer();
+  if (e.key === 'Enter') {
+    if (routeComplete) document.getElementById('new-call-btn').click();
+    else checkAnswer();
+  }
   if (e.key === 'Escape') doSkip();
 });
 
